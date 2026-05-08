@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  mpd-hls:
+    image: charmingcheung000/mpd-hls:alpha
+    container_name: mpd-hls
+    # 端口映射：宿主机9100 -> 容器9100
+    # [::] 表示同时监听 IPv4 和 IPv6 地址(citation:[2][3])
+    ports:
+      - "0.0.0.0:9527:9100"
+      - "[::]:9527:9100"
+    environment:
+      - RUST_LOG=INFO
+      # 设置时区为北京时间，方便定时任务
+      - TZ=Asia/Shanghai
+    volumes:
+      # 将宿主机的 /opt/mpd-hls/var 挂载到容器的 /app/var
+      # 这是存放 CDM 密钥、数据库和密码文件的关键目录
+      - /opt/mpd-hls/var:/app/var
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
