@@ -240,7 +240,8 @@ setup_files() {
     echo ""
 
     mkdir -p "${VAR_DIR}"
-    print_ok "数据目录：${DIM}${VAR_DIR}${NC}"
+    chmod -R 775 "${INSTALL_DIR}"
+    print_ok "数据目录：${DIM}${VAR_DIR}${NC}  ${DIM}（权限 775）${NC}"
 
     print_info "正在下载 ${VERSION_LABEL} 配置模板..."
     local TMP_YML
