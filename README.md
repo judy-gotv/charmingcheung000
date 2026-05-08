@@ -55,15 +55,16 @@
 
 ## 快速开始
 
+**方式一：（推荐）curl 一行命令**
+
 ```bash
-# 下载脚本
-wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000/main/install.sh
+curl -fsSL https://raw.githubusercontent.com/judy-gotv/charmingcheung000/main/install.sh | sudo bash
+```
 
-# 赋予执行权限
-chmod +x install.sh
+**方式二：下载后运行**
 
-# 以 root 权限运行
-sudo bash install.sh
+```bash
+wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000/main/install.sh && chmod +x install.sh && sudo bash install.sh
 ```
 
 运行后进入交互式主菜单，按提示操作即可。
