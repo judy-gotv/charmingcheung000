@@ -1,0 +1,80 @@
+server {
+    listen 80;
+    server_name 这里写你前置域名(不带http);
+
+    # 订阅 m3u：把里面的 IP:端口改成你的域名
+    location ~ ^/sub/.+\.m3u$ {
+    proxy_pass http://这里写推流服务器地址:9527;
+
+    proxy_set_header Host 这里写推流服务器地址;
+    proxy_set_header Accept-Encoding "";
+
+    proxy_hide_header Content-Type;
+    add_header Content-Type "audio/x-mpegurl" always;
+
+    sub_filter_types *;
+    sub_filter_once off;
+
+    sub_filter "https://这里写推流服务器地址" "这里写你前置https://域名";
+    sub_filter "http://这里写推流服务器地址" "这里写你前置https://域名";
+    sub_filter "这里写推流服务器地址:9527" "这里写你前置域名(不带http)";
+    sub_filter "这里写推流服务器地址" "这里写你前置域名(不带http)";
+
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+}
+
+    # m3u8：把 .ts 改成 .jpeg
+    location ~ ^/l/([A-Za-z0-9_-]+)/(video/)?index\.m3u8$ {
+        proxy_pass http://这里写推流服务器地址:9527;
+
+        proxy_set_header Host 这里写推流服务器地址;
+        proxy_set_header Accept-Encoding "";
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "application/vnd.apple.mpegurl" always;
+
+        sub_filter_types *;
+        sub_filter_once off;
+        sub_filter ".ts" ".jpeg";
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
+    # jpeg伪装，实际回源 ts
+    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.jpeg$ {
+        proxy_pass http://这里写推流服务器地址:9527/l/$1/video/$2.ts;
+
+        proxy_set_header Host 这里写推流服务器地址;
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "image/jpeg" always;
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "public, max-age=86400, immutable" always;
+    }
+
+    # ts 也保留可访问
+    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.ts$ {
+        proxy_pass http://这里写推流服务器地址:9527/l/$1/video/$2.ts;
+
+        proxy_set_header Host 这里写推流服务器地址;
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "image/jpeg" always;
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "public, max-age=86400, immutable" always;
+    }
+
+    # 后台 /admin 等其他路径
+    location / {
+        proxy_pass http://这里写推流服务器地址:9527;
+
+        proxy_set_header Host 这里写推流服务器地址;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

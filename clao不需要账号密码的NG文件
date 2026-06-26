@@ -1,0 +1,54 @@
+server {
+    listen 80;
+    server_name 自己的域名;
+
+    location ~ ^/l/([A-Za-z0-9_-]+)/(video/)?index\.m3u8$ {
+        proxy_pass http://127.0.0.1:9527;
+
+        proxy_set_header Host $host;
+        proxy_set_header Accept-Encoding "";
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "application/vnd.apple.mpegurl" always;
+
+        sub_filter_types *;
+        sub_filter_once off;
+        sub_filter ".ts" ".jpeg";
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
+    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.jpeg$ {
+        proxy_pass http://127.0.0.1:9527/l/$1/video/$2.ts;
+
+        proxy_set_header Host $host;
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "image/jpeg" always;
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "public, max-age=86400, immutable" always;
+    }
+
+    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.ts$ {
+        proxy_pass http://127.0.0.1:9527/l/$1/video/$2.ts;
+
+        proxy_set_header Host $host;
+
+        proxy_hide_header Content-Type;
+        add_header Content-Type "image/jpeg" always;
+
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "public, max-age=86400, immutable" always;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:9527;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
