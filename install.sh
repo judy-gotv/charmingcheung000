@@ -7,7 +7,6 @@ set -euo pipefail
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -32,10 +31,10 @@ DOMAIN_NAME=""
 COMPOSE_CMD=""
 
 line() { echo -e "${DIM}------------------------------------------------------------${NC}"; }
-ok() { echo -e "${GREEN}[OK]${NC} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err() { echo -e "${RED}[ERR]${NC} $*"; }
-info() { echo -e "${CYAN}[INFO]${NC} $*"; }
+ok() { echo -e "${GREEN}[完成 / OK]${NC} $*"; }
+warn() { echo -e "${YELLOW}[警告 / WARN]${NC} $*"; }
+err() { echo -e "${RED}[错误 / ERR]${NC} $*"; }
+info() { echo -e "${CYAN}[信息 / INFO]${NC} $*"; }
 
 step() {
     echo ""
@@ -45,14 +44,14 @@ step() {
 banner() {
     clear || true
     echo -e "${CYAN}${BOLD}"
-    echo "MPD-HLS one-key installer"
-    echo -e "${NC}${DIM}Docker + Compose + Nginx reverse proxy | ${AUTHOR}${NC}"
+    echo "MPD-HLS 一键安装脚本 / MPD-HLS one-key installer"
+    echo -e "${NC}${DIM}Docker + Compose + Nginx 反向代理 / Docker + Compose + Nginx reverse proxy | ${AUTHOR}${NC}"
     echo ""
 }
 
 need_root() {
     if [ "${EUID}" -ne 0 ]; then
-        err "Please run as root: sudo bash install.sh"
+        err "请使用 root 权限运行 / Please run as root: sudo bash install.sh"
         exit 1
     fi
 }
@@ -62,7 +61,7 @@ ensure_download_tool() {
         return
     fi
 
-    info "Installing curl..."
+    info "正在安装 curl... / Installing curl..."
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
         apt-get install -y curl
@@ -71,7 +70,7 @@ ensure_download_tool() {
     elif command -v yum >/dev/null 2>&1; then
         yum install -y curl
     else
-        err "curl/wget is missing and no supported package manager was found."
+        err "缺少 curl/wget，且未找到支持的包管理器。 / curl/wget is missing and no supported package manager was found."
         exit 1
     fi
 }
@@ -89,53 +88,53 @@ download_to() {
 }
 
 choose_action() {
-    echo -e "${BOLD}Choose action:${NC}"
-    echo "  1) Install / reinstall"
-    echo "  2) Upgrade"
-    echo "  3) Uninstall"
+    echo -e "${BOLD}请选择操作 / Choose action:${NC}"
+    echo "  1) 安装 / 重装 / Install / reinstall"
+    echo "  2) 升级 / Upgrade"
+    echo "  3) 卸载 / Uninstall"
     line
 
     while true; do
-        read -r -p "Select [1/2/3] (default: 1): " ACTION_CHOICE
+        read -r -p "请选择 [1/2/3]（默认: 1）/ Select [1/2/3] (default: 1): " ACTION_CHOICE
         ACTION_CHOICE="${ACTION_CHOICE:-1}"
         case "$ACTION_CHOICE" in
             1|2|3) break ;;
-            *) warn "Please enter 1, 2, or 3." ;;
+            *) warn "请输入 1、2 或 3。 / Please enter 1, 2, or 3." ;;
         esac
     done
 }
 
 choose_version() {
-    step "Choose version"
-    echo "  1) Stable latest"
-    echo "  2) Alpha"
+    step "选择版本 / Choose version"
+    echo "  1) 稳定版 latest / Stable latest"
+    echo "  2) 测试版 alpha / Alpha"
     line
 
     while true; do
-        read -r -p "Select [1/2] (default: 1): " VERSION_CHOICE
+        read -r -p "请选择 [1/2]（默认: 1）/ Select [1/2] (default: 1): " VERSION_CHOICE
         VERSION_CHOICE="${VERSION_CHOICE:-1}"
         case "$VERSION_CHOICE" in
             1)
                 VERSION_TAG="latest"
-                VERSION_LABEL="Stable latest"
+                VERSION_LABEL="稳定版 latest / Stable latest"
                 VERSION_YML_URL="${LATEST_YML_URL}"
-                ok "Selected ${VERSION_LABEL}"
+                ok "已选择 ${VERSION_LABEL} / Selected ${VERSION_LABEL}"
                 break
                 ;;
             2)
                 VERSION_TAG="alpha"
-                VERSION_LABEL="Alpha"
+                VERSION_LABEL="测试版 alpha / Alpha"
                 VERSION_YML_URL="${ALPHA_YML_URL}"
-                warn "Selected ${VERSION_LABEL}"
+                warn "已选择 ${VERSION_LABEL} / Selected ${VERSION_LABEL}"
                 break
                 ;;
-            *) warn "Please enter 1 or 2." ;;
+            *) warn "请输入 1 或 2。 / Please enter 1 or 2." ;;
         esac
     done
 }
 
 install_docker() {
-    step "Install Docker"
+    step "安装 Docker / Install Docker"
     ensure_download_tool
 
     if command -v curl >/dev/null 2>&1; then
@@ -145,29 +144,29 @@ install_docker() {
     fi
 
     systemctl enable --now docker
-    ok "Docker installed: $(docker --version)"
+    ok "Docker 安装完成 / Docker installed: $(docker --version)"
 }
 
 check_docker() {
-    step "Check Docker"
+    step "检测 Docker / Check Docker"
 
     if command -v docker >/dev/null 2>&1; then
-        ok "Docker found: $(docker --version)"
+        ok "Docker 已安装 / Docker found: $(docker --version)"
     else
-        warn "Docker not found, installing online..."
+        warn "未检测到 Docker，正在在线安装... / Docker not found, installing online..."
         install_docker
     fi
 
     if ! docker info >/dev/null 2>&1; then
-        info "Starting Docker service..."
+        info "正在启动 Docker 服务... / Starting Docker service..."
         systemctl enable --now docker
     fi
 
-    ok "Docker service is ready."
+    ok "Docker 服务已就绪。 / Docker service is ready."
 }
 
 install_compose_plugin() {
-    step "Install Docker Compose plugin"
+    step "安装 Docker Compose 插件 / Install Docker Compose plugin"
     ensure_download_tool
 
     local latest arch release_json
@@ -183,26 +182,26 @@ install_compose_plugin() {
     case "$arch" in
         x86_64|amd64) arch="x86_64" ;;
         aarch64|arm64) arch="aarch64" ;;
-        *) err "Unsupported architecture for Docker Compose: ${arch}"; exit 1 ;;
+        *) err "Docker Compose 不支持当前架构 / Unsupported architecture for Docker Compose: ${arch}"; exit 1 ;;
     esac
 
     mkdir -p /usr/local/lib/docker/cli-plugins
     download_to "https://github.com/docker/compose/releases/download/${latest}/docker-compose-linux-${arch}" /usr/local/lib/docker/cli-plugins/docker-compose
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-    ok "Docker Compose plugin installed: ${latest}"
+    ok "Docker Compose 插件安装完成 / Docker Compose plugin installed: ${latest}"
 }
 
 check_compose() {
-    step "Check Docker Compose"
+    step "检测 Docker Compose / Check Docker Compose"
 
     if docker compose version >/dev/null 2>&1; then
         COMPOSE_CMD="docker compose"
-        ok "Docker Compose found: $(docker compose version --short 2>/dev/null || echo v2)"
+        ok "Docker Compose 已安装 / Docker Compose found: $(docker compose version --short 2>/dev/null || echo v2)"
     elif command -v docker-compose >/dev/null 2>&1; then
         COMPOSE_CMD="docker-compose"
-        ok "docker-compose found: $(docker-compose --version)"
+        ok "docker-compose 已安装 / docker-compose found: $(docker-compose --version)"
     else
-        warn "Docker Compose not found, installing online..."
+        warn "未检测到 Docker Compose，正在在线安装... / Docker Compose not found, installing online..."
         install_compose_plugin
         COMPOSE_CMD="docker compose"
     fi
@@ -220,33 +219,33 @@ port_in_use() {
 }
 
 choose_port() {
-    step "Configure service port"
-    info "Default port is ${DEFAULT_PORT}. Press Enter to use it."
+    step "配置服务端口 / Configure service port"
+    info "默认端口为 ${DEFAULT_PORT}，直接回车使用默认值。 / Default port is ${DEFAULT_PORT}. Press Enter to use it."
 
     while true; do
-        read -r -p "Service port [1-65535] (default: ${DEFAULT_PORT}): " USER_PORT
+        read -r -p "服务端口 [1-65535]（默认: ${DEFAULT_PORT}）/ Service port [1-65535] (default: ${DEFAULT_PORT}): " USER_PORT
         USER_PORT="${USER_PORT:-$DEFAULT_PORT}"
 
         if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]]; then
-            warn "Please enter a valid number."
+            warn "请输入有效数字。 / Please enter a valid number."
             continue
         fi
         if [ "$USER_PORT" -lt 1 ] || [ "$USER_PORT" -gt 65535 ]; then
-            warn "Port must be between 1 and 65535."
+            warn "端口范围必须在 1 到 65535 之间。 / Port must be between 1 and 65535."
             continue
         fi
         if port_in_use "$USER_PORT"; then
-            warn "Port ${USER_PORT} is already in use."
+            warn "端口 ${USER_PORT} 已被占用。 / Port ${USER_PORT} is already in use."
             continue
         fi
 
-        ok "Service port: ${USER_PORT}"
+        ok "服务端口 / Service port: ${USER_PORT}"
         break
     done
 }
 
 choose_domain() {
-    step "Configure Nginx domain"
+    step "配置 Nginx 域名 / Configure Nginx domain"
 
     echo -e "${YELLOW}${BOLD}安全提示 / Security notice:${NC}"
     echo -e "${YELLOW}  1. 必须使用自定义令牌作为订阅连接。 / You must use a custom token for subscription links.${NC}"
@@ -254,25 +253,25 @@ choose_domain() {
     echo ""
 
     while true; do
-        read -r -p "Enter your domain for Nginx reverse proxy: " DOMAIN_NAME
+        read -r -p "请输入 Nginx 反向代理域名 / Enter your domain for Nginx reverse proxy: " DOMAIN_NAME
         DOMAIN_NAME="$(echo "$DOMAIN_NAME" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
         if [ -z "$DOMAIN_NAME" ]; then
-            warn "Domain cannot be empty."
+            warn "域名不能为空。 / Domain cannot be empty."
             continue
         fi
         if echo "$DOMAIN_NAME" | grep -Eq '[[:space:]/:]'; then
-            warn "Please enter only the domain, for example: example.com"
+            warn "请只输入域名，例如 example.com / Please enter only the domain, for example: example.com"
             continue
         fi
 
-        ok "Nginx domain: ${DOMAIN_NAME}"
+        ok "Nginx 域名 / Nginx domain: ${DOMAIN_NAME}"
         break
     done
 }
 
 setup_files() {
-    step "Download compose file"
+    step "下载 Compose 配置文件 / Download compose file"
 
     mkdir -p "${VAR_DIR}"
     chmod -R 775 "${INSTALL_DIR}"
@@ -281,7 +280,7 @@ setup_files() {
     tmp_yml="$(mktemp)"
     download_to "${VERSION_YML_URL}" "${tmp_yml}" || {
         rm -f "${tmp_yml}"
-        err "Failed to download compose template."
+        err "下载 Compose 模板失败。 / Failed to download compose template."
         exit 1
     }
 
@@ -292,38 +291,38 @@ setup_files() {
         "${tmp_yml}" > "${COMPOSE_FILE}"
 
     rm -f "${tmp_yml}"
-    ok "Compose file written: ${COMPOSE_FILE}"
+    ok "Compose 配置已写入 / Compose file written: ${COMPOSE_FILE}"
 }
 
 start_service() {
-    step "Pull image and start service"
+    step "拉取镜像并启动服务 / Pull image and start service"
 
     cd "${INSTALL_DIR}"
     ${COMPOSE_CMD} pull
     ${COMPOSE_CMD} up -d --remove-orphans
 
-    ok "Container started."
+    ok "容器已启动。 / Container started."
 }
 
 wait_healthy() {
-    step "Wait for container"
+    step "等待容器运行 / Wait for container"
 
     local tries=0 status
     while [ "$tries" -lt 20 ]; do
         status="$(docker inspect --format='{{.State.Status}}' mpd-hls 2>/dev/null || echo unknown)"
         if [ "$status" = "running" ]; then
-            ok "Container status: running"
+            ok "容器状态：running / Container status: running"
             return
         fi
         sleep 2
         tries=$((tries + 1))
     done
 
-    warn "Container is not running yet. Check logs with: docker logs mpd-hls"
+    warn "容器暂未进入 running 状态，请查看日志：docker logs mpd-hls / Container is not running yet. Check logs with: docker logs mpd-hls"
 }
 
 install_nginx() {
-    step "Install Nginx"
+    step "安装 Nginx / Install Nginx"
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
@@ -333,28 +332,28 @@ install_nginx() {
     elif command -v yum >/dev/null 2>&1; then
         yum install -y nginx
     else
-        err "No supported package manager found. Please install Nginx manually."
+        err "未找到支持的包管理器，请手动安装 Nginx。 / No supported package manager found. Please install Nginx manually."
         exit 1
     fi
 
-    ok "Nginx installed."
+    ok "Nginx 安装完成。 / Nginx installed."
 }
 
 check_nginx() {
-    step "Check Nginx"
+    step "检测 Nginx / Check Nginx"
 
     if command -v nginx >/dev/null 2>&1; then
-        ok "Nginx already installed, skip installation: $(nginx -v 2>&1)"
-        info "Continue to configure reverse proxy..."
+        ok "Nginx 已安装，跳过安装 / Nginx already installed, skip installation: $(nginx -v 2>&1)"
+        info "继续配置反向代理... / Continue to configure reverse proxy..."
     else
-        warn "Nginx not found, installing online..."
+        warn "未检测到 Nginx，正在在线安装... / Nginx not found, installing online..."
         install_nginx
-        info "Nginx installation completed, continue to configure reverse proxy..."
+        info "Nginx 安装完成，继续配置反向代理... / Nginx installation completed, continue to configure reverse proxy..."
     fi
 }
 
 configure_nginx() {
-    step "Write Nginx reverse proxy"
+    step "写入 Nginx 反向代理 / Write Nginx reverse proxy"
 
     mkdir -p /etc/nginx/conf.d
     if [ -f "${NGINX_CONF}" ]; then
@@ -418,16 +417,16 @@ server {
 }
 EOF
 
-    info "Testing Nginx configuration..."
+    info "正在测试 Nginx 配置... / Testing Nginx configuration..."
     nginx -t
 
-    info "Starting and enabling Nginx service..."
+    info "正在启动并设置 Nginx 开机自启... / Starting and enabling Nginx service..."
     systemctl enable --now nginx
 
-    info "Reloading Nginx to apply reverse proxy configuration..."
+    info "正在重载 Nginx 使反向代理生效... / Reloading Nginx to apply reverse proxy configuration..."
     systemctl reload nginx || systemctl restart nginx
 
-    ok "Nginx reverse proxy is active: ${NGINX_CONF}"
+    ok "Nginx 反向代理已生效 / Nginx reverse proxy is active: ${NGINX_CONF}"
 }
 
 setup_nginx() {
@@ -437,19 +436,19 @@ setup_nginx() {
 }
 
 open_firewall() {
-    step "Open firewall ports"
+    step "放行防火墙端口 / Open firewall ports"
 
     if command -v ufw >/dev/null 2>&1; then
         ufw allow "${USER_PORT}/tcp" >/dev/null 2>&1 || true
         ufw allow 80/tcp >/dev/null 2>&1 || true
-        ok "ufw allowed ${USER_PORT}/tcp and 80/tcp"
+        ok "ufw 已放行 ${USER_PORT}/tcp 和 80/tcp / ufw allowed ${USER_PORT}/tcp and 80/tcp"
     fi
 
     if command -v firewall-cmd >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port="${USER_PORT}/tcp" >/dev/null 2>&1 || true
         firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
         firewall-cmd --reload >/dev/null 2>&1 || true
-        ok "firewalld allowed ${USER_PORT}/tcp and http"
+        ok "firewalld 已放行 ${USER_PORT}/tcp 和 http / firewalld allowed ${USER_PORT}/tcp and http"
     fi
 }
 
@@ -482,21 +481,21 @@ print_summary() {
     created="$(docker inspect --format='{{.Created}}' mpd-hls 2>/dev/null | cut -c1-19 || echo unknown)"
 
     echo ""
-    echo -e "${GREEN}${BOLD}Install completed.${NC}"
+    echo -e "${GREEN}${BOLD}安装完成。 / Install completed.${NC}"
     line
-    echo "Image: charmingcheung000/mpd-hls:${VERSION_TAG:-unknown}"
-    echo "Container ID: ${container_id}"
-    echo "Created: ${created}"
-    echo "Local URL: http://${LOCAL_IP}:${USER_PORT}"
-    echo "Public URL: http://${PUBLIC_IP}:${USER_PORT}"
+    echo "镜像 / Image: charmingcheung000/mpd-hls:${VERSION_TAG:-unknown}"
+    echo "容器 ID / Container ID: ${container_id}"
+    echo "创建时间 / Created: ${created}"
+    echo "内网地址 / Local URL: http://${LOCAL_IP}:${USER_PORT}"
+    echo "公网地址 / Public URL: http://${PUBLIC_IP}:${USER_PORT}"
     if [ -n "${DOMAIN_NAME}" ]; then
-        echo "Nginx URL: http://${DOMAIN_NAME}"
+        echo "Nginx 地址 / Nginx URL: http://${DOMAIN_NAME}"
     fi
-    echo "Data dir: ${VAR_DIR}"
-    echo "Compose file: ${COMPOSE_FILE}"
-    echo "Nginx conf: ${NGINX_CONF}"
+    echo "数据目录 / Data dir: ${VAR_DIR}"
+    echo "Compose 文件 / Compose file: ${COMPOSE_FILE}"
+    echo "Nginx 配置 / Nginx conf: ${NGINX_CONF}"
     echo ""
-    echo "Useful commands:"
+    echo "常用命令 / Useful commands:"
     echo "  docker logs -f mpd-hls"
     echo "  cd ${INSTALL_DIR} && ${COMPOSE_CMD} restart"
     echo "  cd ${INSTALL_DIR} && ${COMPOSE_CMD} down"
@@ -516,14 +515,14 @@ do_install() {
 }
 
 do_upgrade() {
-    step "Upgrade"
+    step "升级 / Upgrade"
 
     USER_PORT="$(read_current_port)"
     DOMAIN_NAME="$(read_current_domain)"
 
     if ! docker inspect mpd-hls >/dev/null 2>&1 && [ ! -f "${COMPOSE_FILE}" ]; then
-        warn "Existing mpd-hls installation was not found."
-        read -r -p "Run a fresh install now? [Y/n]: " GO_INSTALL
+        warn "未检测到已安装的 mpd-hls 服务。 / Existing mpd-hls installation was not found."
+        read -r -p "是否立即执行全新安装？[Y/n] / Run a fresh install now? [Y/n]: " GO_INSTALL
         GO_INSTALL="${GO_INSTALL:-Y}"
         if [[ "$GO_INSTALL" =~ ^[Yy]$ ]]; then
             do_install
@@ -531,11 +530,11 @@ do_upgrade() {
         return
     fi
 
-    info "Current service port: ${USER_PORT}"
-    read -r -p "Upgrade and restart service? [Y/n]: " UP_CONFIRM
+    info "当前服务端口 / Current service port: ${USER_PORT}"
+    read -r -p "确认升级并重启服务？[Y/n] / Upgrade and restart service? [Y/n]: " UP_CONFIRM
     UP_CONFIRM="${UP_CONFIRM:-Y}"
     if [[ ! "$UP_CONFIRM" =~ ^[Yy]$ ]]; then
-        warn "Upgrade cancelled."
+        warn "已取消升级。 / Upgrade cancelled."
         exit 0
     fi
 
@@ -560,11 +559,11 @@ do_upgrade() {
 }
 
 do_uninstall() {
-    step "Uninstall"
-    echo "This will remove the mpd-hls container, images, data directory, and Nginx site config."
-    read -r -p "Type YES to continue: " CONFIRM
+    step "卸载 / Uninstall"
+    echo "这将删除 mpd-hls 容器、镜像、数据目录和 Nginx 站点配置。 / This will remove the mpd-hls container, images, data directory, and Nginx site config."
+    read -r -p "请输入 YES 确认继续 / Type YES to continue: " CONFIRM
     if [ "$CONFIRM" != "YES" ]; then
-        warn "Uninstall cancelled."
+        warn "已取消卸载。 / Uninstall cancelled."
         exit 0
     fi
 
@@ -586,7 +585,7 @@ do_uninstall() {
         nginx -t && systemctl reload nginx || true
     fi
 
-    ok "Uninstall completed."
+    ok "卸载完成。 / Uninstall completed."
 }
 
 main() {
