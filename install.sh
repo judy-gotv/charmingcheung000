@@ -16,6 +16,7 @@ INSTALL_DIR="/opt/mpd-hls"
 VAR_DIR="${INSTALL_DIR}/var"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 NGINX_CONF="/etc/nginx/conf.d/mpd-hls.conf"
+DOMAIN_FILE="${INSTALL_DIR}/nginx-domain.txt"
 DEFAULT_PORT=9527
 CONTAINER_PORT=9100
 AUTHOR="Go-iptv"
@@ -356,6 +357,7 @@ configure_nginx() {
     step "写入 Nginx 反向代理 / Write Nginx reverse proxy"
 
     mkdir -p /etc/nginx/conf.d
+    mkdir -p "${INSTALL_DIR}"
     if [ -f "${NGINX_CONF}" ]; then
         cp -f "${NGINX_CONF}" "${NGINX_CONF}.bak.$(date +%Y%m%d%H%M%S)"
     fi
@@ -417,6 +419,8 @@ server {
 }
 EOF
 
+    printf '%s\n' "${DOMAIN_NAME}" > "${DOMAIN_FILE}"
+
     info "正在测试 Nginx 配置... / Testing Nginx configuration..."
     nginx -t
 
@@ -467,7 +471,10 @@ read_current_port() {
 
 read_current_domain() {
     local current=""
-    if [ -f "${NGINX_CONF}" ]; then
+    if [ -f "${DOMAIN_FILE}" ]; then
+        current="$(tr -d '[:space:]' < "${DOMAIN_FILE}" 2>/dev/null || true)"
+    fi
+    if [ -z "${current}" ] && [ -f "${NGINX_CONF}" ]; then
         current="$(awk '/server_name/ {gsub(/;/, "", $2); print $2; exit}' "${NGINX_CONF}" 2>/dev/null || true)"
     fi
     echo "$current"
@@ -546,11 +553,11 @@ do_upgrade() {
     ${COMPOSE_CMD} up -d --remove-orphans
     wait_healthy
 
-    if [ -z "${DOMAIN_NAME}" ]; then
-        setup_nginx
-    else
+    if [ -n "${DOMAIN_NAME}" ]; then
         check_nginx
         configure_nginx
+    else
+        info "未找到已保存的 Nginx 域名，跳过反向代理更新。 / No saved Nginx domain found, skip reverse proxy update."
     fi
 
     open_firewall
@@ -580,6 +587,7 @@ do_uninstall() {
 
     rm -rf "${INSTALL_DIR}"
     rm -f "${NGINX_CONF}"
+    rm -f "${DOMAIN_FILE}"
 
     if command -v nginx >/dev/null 2>&1; then
         nginx -t && systemctl reload nginx || true
