@@ -480,6 +480,29 @@ read_current_domain() {
     echo "$current"
 }
 
+detect_existing_nginx_proxy() {
+    local port="$1"
+    local paths=(
+        /etc/nginx/conf.d
+        /etc/nginx/sites-enabled
+        /etc/nginx/sites-available
+    )
+    local dir file
+
+    for dir in "${paths[@]}"; do
+        [ -d "${dir}" ] || continue
+        while IFS= read -r -d '' file; do
+            if grep -Eq "proxy_pass[[:space:]]+http://127\.0\.0\.1:${port}" "${file}" 2>/dev/null || \
+               grep -Eq "server_name[[:space:]]+[^;]+" "${file}" 2>/dev/null; then
+                echo "${file}"
+                return 0
+            fi
+        done < <(find "${dir}" -maxdepth 1 -type f \( -name '*.conf' -o -name '*' \) -print0 2>/dev/null)
+    done
+
+    return 1
+}
+
 print_summary() {
     get_ip
 
@@ -526,6 +549,8 @@ do_upgrade() {
 
     USER_PORT="$(read_current_port)"
     DOMAIN_NAME="$(read_current_domain)"
+    local existing_nginx_conf=""
+    existing_nginx_conf="$(detect_existing_nginx_proxy "${USER_PORT}" 2>/dev/null || true)"
 
     if ! docker inspect mpd-hls >/dev/null 2>&1 && [ ! -f "${COMPOSE_FILE}" ]; then
         warn "未检测到已安装的 mpd-hls 服务。 / Existing mpd-hls installation was not found."
@@ -553,11 +578,16 @@ do_upgrade() {
     ${COMPOSE_CMD} up -d --remove-orphans
     wait_healthy
 
-    if [ -n "${DOMAIN_NAME}" ]; then
+    if [ -n "${existing_nginx_conf}" ]; then
+        ok "检测到现有 Nginx 配置，跳过域名输入和反代重写 / Existing Nginx config detected, skip domain prompt and reverse-proxy rewrite: ${existing_nginx_conf}"
+        if command -v nginx >/dev/null 2>&1; then
+            nginx -t && systemctl reload nginx || systemctl restart nginx || true
+        fi
+    elif [ -n "${DOMAIN_NAME}" ]; then
         check_nginx
         configure_nginx
     else
-        info "未找到已保存的 Nginx 域名，跳过反向代理更新。 / No saved Nginx domain found, skip reverse proxy update."
+        info "未找到现成的 Nginx 反向代理配置，跳过反向代理更新。 / No existing Nginx reverse proxy config found, skip update."
     fi
 
     open_firewall
