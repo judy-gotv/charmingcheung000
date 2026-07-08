@@ -2,7 +2,7 @@ server {
     listen 80;
     server_name 自己的域名;
 
-    location ~ ^/l/([A-Za-z0-9_-]+)/(video/)?index\.m3u8$ {
+    location ~ ^/l/([A-Za-z0-9_-]+)/(video/|audio/)?index\.m3u8$ {
         proxy_pass http://127.0.0.1:9527;
 
         proxy_set_header Host $host;
@@ -19,8 +19,8 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
     }
 
-    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.jpeg$ {
-        proxy_pass http://127.0.0.1:9527/l/$1/video/$2.ts;
+    location ~ ^/l/([A-Za-z0-9_-]+)/(video|audio)/([0-9]+)\.jpeg$ {
+        proxy_pass http://127.0.0.1:9527/l/$1/$2/$3.ts;
 
         proxy_set_header Host $host;
 
@@ -31,8 +31,8 @@ server {
         add_header Cache-Control "public, max-age=86400, immutable" always;
     }
 
-    location ~ ^/l/([A-Za-z0-9_-]+)/video/([0-9]+)\.ts$ {
-        proxy_pass http://127.0.0.1:9527/l/$1/video/$2.ts;
+    location ~ ^/l/([A-Za-z0-9_-]+)/(video|audio)/([0-9]+)\.ts$ {
+        proxy_pass http://127.0.0.1:9527/l/$1/$2/$3.ts;
 
         proxy_set_header Host $host;
 
