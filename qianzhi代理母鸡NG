@@ -44,7 +44,7 @@ server {
 
     # jpeg伪装，实际回源 ts
     location ~ ^/l/([A-Za-z0-9_-]+)/(video|audio)/([0-9]+)\.jpeg$ {
-        proxy_pass http://这里写推流服务器地址:9527/l/$1/video/$2.ts;
+        proxy_pass http://这里写推流服务器地址:9527/l/$1/$2/$3.ts;
 
         proxy_set_header Host 这里写推流服务器地址;
 
@@ -57,7 +57,7 @@ server {
 
     # ts 也保留可访问
     location ~ ^/l/([A-Za-z0-9_-]+)/(video|audio)/([0-9]+)\.ts$ {
-        proxy_pass http://这里写推流服务器地址:9527/l/$1/video/$2.ts;
+        proxy_pass http://这里写推流服务器地址:9527/l/$1/$2/$3.ts;
 
         proxy_set_header Host 这里写推流服务器地址;
 
