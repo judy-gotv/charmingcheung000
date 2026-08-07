@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Author-Go--iptv-blueviolet?style=flat-square"/>
 </p>
 
-> 一键部署 MPD-HLS 串流服务，支持自动安装 Docker、自定义端口、多版本切换、升级与卸载。
+> 一键部署 MPD-HLS 串流服务，支持 HTTP/HLS 与 RTMP 推流、自定义访问域名、多版本切换、升级与卸载。
 
 ---
 
@@ -34,10 +34,12 @@
 | 🐳 自动安装 Docker | 检测到未安装时自动下载官方脚本安装，已安装则直接跳过 |
 | 🔧 自动安装 Compose | 优先使用 Docker Compose Plugin（v2），兼容旧版 docker-compose |
 | 🎯 自定义端口 | 安装时交互输入端口号，自动检测占用冲突，默认 `9527` |
+| 📡 RTMP 推流 | 自动映射并放行固定端口 `1935`，同时检测端口冲突 |
+| 🔗 公共访问地址 | 根据 Nginx 域名设置 `MPD_HLS_PUBLIC_BASE_URL`，生成正确的 m3u8、m3u8x、EPG 等资源链接 |
 | 📦 多版本选择 | 支持 `latest` 稳定版 与 `alpha` 尝鲜版 |
-| ⬆️ 一键升级 | 自动读取现有端口配置，拉取最新镜像后原地重启，数据完整保留 |
+| ⬆️ 一键升级 | 保留版本、HTTP 端口和域名，补齐新版部署参数后拉取镜像并重启 |
 | 🗑️ 一键卸载 | 移除容器、镜像（latest + alpha）及全部数据目录 |
-| 🔥 防火墙自动放行 | 自动兼容 `ufw` 和 `firewalld` |
+| 🔥 防火墙自动放行 | 自动兼容 `ufw` 和 `firewalld`，放行 HTTP、RTMP 和 Nginx 端口 |
 | 🌐 双栈监听 | 同时监听 IPv4（`0.0.0.0`）与 IPv6（`::`） |
 
 ---
@@ -77,7 +79,7 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
 
 ```
   [ 1 ]  安装 / 重装  — 全新安装或覆盖现有服务
-  [ 2 ]  一键升级     — 拉取最新镜像，保留端口与数据
+  [ 2 ]  一键升级     — 更新镜像与部署配置，保留端口、域名和数据
   [ 3 ]  卸    载     — 移除容器、镜像及全部数据
 ```
 
@@ -99,12 +101,21 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
 ```
 - 直接回车使用默认端口 `9527`
 - 输入自定义端口后脚本会自动检测是否被占用
+- `1935` 保留给 RTMP 推流，不能作为 HTTP 服务端口
 
-**③ 自动执行**
+**③ 设置 Nginx 域名**
 
-脚本将依次完成：检测/安装 Docker → 检测/安装 Compose → 下载配置 → 拉取镜像 → 启动容器 → 放行防火墙
+脚本会要求输入反向代理域名，例如 `stream.example.com`。该域名同时用于生成：
 
-**④ 安装完成后显示**
+```yaml
+MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
+```
+
+**④ 自动执行**
+
+脚本将依次完成：检测/安装 Docker → 检测/安装 Compose → 检查 HTTP 与 RTMP 端口 → 整理数据目录 → 生成 Compose 配置 → 拉取镜像 → 配置 Nginx → 放行防火墙
+
+**⑤ 安装完成后显示**
 
 ```
   服务信息
@@ -117,6 +128,8 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
   ─────────────────────────────────────────────────
     内    网   http://192.168.1.100:9527
     公    网   http://1.2.3.4:9527
+    RTMP      rtmp://1.2.3.4:1935
+    Nginx     http://stream.example.com
 
   常用命令
   ─────────────────────────────────────────────────
@@ -134,14 +147,19 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
 
 - **端口** — 完全保留用户设置的端口，不会被重置
 - **版本 Tag** — 保留原来安装的版本（latest / alpha），拉取该 tag 的最新镜像
+- **公共域名** — 自动读取原 Nginx 域名；读取不到时提示重新输入
 - **数据目录** — `/opt/mpd-hls/var` 中的数据完整保留，不做任何清理
+
+升级会重新生成 `docker-compose.yml`，自动加入 RTMP `1935` 映射和 `MPD_HLS_PUBLIC_BASE_URL`。旧 Compose 文件会保存为带时间戳的 `.bak` 备份。
 
 升级步骤：
 
 ```
-  步骤 1/3  检测 Docker 环境       已安装则跳过，未安装则自动安装
-  步骤 2/3  拉取最新镜像           docker compose pull
-  步骤 3/3  重启服务               docker compose up -d --remove-orphans
+  步骤 1/5  检测 Docker 环境       已安装则跳过，未安装则自动安装
+  步骤 2/5  检查 RTMP 端口         拒绝其他服务占用 1935
+  步骤 3/5  整理并保留数据目录     迁移旧字体与录制目录
+  步骤 4/5  更新配置并拉取镜像     写入新版 Compose 后执行 pull
+  步骤 5/5  重启服务               docker compose up -d --remove-orphans
 ```
 
 > 若检测到未安装过 mpd-hls 服务，脚本会提示是否转入全新安装流程。
@@ -179,6 +197,9 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
 /opt/mpd-hls/
 ├── docker-compose.yml    # 服务配置文件（自动生成）
 └── var/                  # 持久化数据目录（映射至容器 /app/var）
+    ├── hls/              # 临时推流输出文件
+    ├── fonts/            # 字体文件（从旧 var/hls/fonts 自动迁移）
+    ├── recordings/       # 录制文件（从旧 var/hls/recordings 自动迁移）
     ├── *.db              # 数据库文件
     └── ...               # CDM 密钥等配置
 ```
@@ -207,6 +228,14 @@ docker ps -a | grep mpd-hls
 docker exec -it mpd-hls bash
 ```
 
+直接使用仓库中的 `latest.yml` 或 `alpha.yml` 时，可通过环境变量指定公共地址：
+
+```bash
+MPD_HLS_PUBLIC_BASE_URL=https://stream.example.com docker compose -f latest.yml up -d
+```
+
+未设置时，Compose 文件默认使用 `http://localhost`。
+
 ---
 
 ## 版本说明
@@ -228,6 +257,14 @@ docker exec -it mpd-hls bash
 
 不会发生这种情况。升级流程会从 `/opt/mpd-hls/docker-compose.yml` 中自动读取当前端口，原样保留。
 
+**Q：RTMP 端口可以修改吗？**
+
+一键安装脚本固定使用 `1935`。安装和升级都会检查端口；如果被其他服务占用，脚本会停止并显示错误。
+
+**Q：生成的 m3u8 或 EPG 链接域名不正确怎么办？**
+
+检查 `/opt/mpd-hls/docker-compose.yml` 中的 `MPD_HLS_PUBLIC_BASE_URL`。一键安装会根据 Nginx 域名自动设置；直接使用 Compose 文件时请通过同名环境变量覆盖默认值。
+
 **Q：卸载后数据能恢复吗？**
 
 不能。卸载会执行 `rm -rf /opt/mpd-hls`，请在卸载前自行备份 `/opt/mpd-hls/var` 目录中的重要数据。
@@ -238,17 +275,24 @@ Docker 镜像和 Compose 插件均支持 `aarch64` 架构，脚本会自动识�
 
 **Q：防火墙没有自动放行怎么办？**
 
-手动执行以下命令（将 `9527` 替换为实际端口）：
+手动执行以下命令（将 `9527` 替换为实际 HTTP 端口）：
 
 ```bash
 # ufw
 ufw allow 9527/tcp
+ufw allow 1935/tcp
+ufw allow 80/tcp
 
 # firewalld
-firewall-cmd --permanent --add-port=9527/tcp && firewall-cmd --reload
+firewall-cmd --permanent --add-port=9527/tcp
+firewall-cmd --permanent --add-port=1935/tcp
+firewall-cmd --permanent --add-service=http
+firewall-cmd --reload
 
 # iptables
 iptables -I INPUT -p tcp --dport 9527 -j ACCEPT
+iptables -I INPUT -p tcp --dport 1935 -j ACCEPT
+iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 ```
 
 ---
