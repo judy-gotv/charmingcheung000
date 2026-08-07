@@ -14,19 +14,19 @@ NC='\033[0m'
 
 INSTALL_DIR="/opt/mpd-hls"
 VAR_DIR="${INSTALL_DIR}/var"
+HLS_DIR="${VAR_DIR}/hls"
+FONTS_DIR="${VAR_DIR}/fonts"
+RECORDINGS_DIR="${VAR_DIR}/recordings"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 NGINX_CONF="/etc/nginx/conf.d/mpd-hls.conf"
 DOMAIN_FILE="${INSTALL_DIR}/nginx-domain.txt"
 DEFAULT_PORT=9527
 CONTAINER_PORT=9100
+RTMP_PORT=1935
 AUTHOR="Go-iptv"
-
-LATEST_YML_URL="https://raw.githubusercontent.com/judy-gotv/charmingcheung000/main/latest.yml"
-ALPHA_YML_URL="https://raw.githubusercontent.com/judy-gotv/charmingcheung000/main/alpha.yml"
 
 VERSION_TAG=""
 VERSION_LABEL=""
-VERSION_YML_URL=""
 USER_PORT="${DEFAULT_PORT}"
 DOMAIN_NAME=""
 COMPOSE_CMD=""
@@ -118,14 +118,12 @@ choose_version() {
             1)
                 VERSION_TAG="latest"
                 VERSION_LABEL="稳定版 latest / Stable latest"
-                VERSION_YML_URL="${LATEST_YML_URL}"
                 ok "已选择 ${VERSION_LABEL} / Selected ${VERSION_LABEL}"
                 break
                 ;;
             2)
                 VERSION_TAG="alpha"
                 VERSION_LABEL="测试版 alpha / Alpha"
-                VERSION_YML_URL="${ALPHA_YML_URL}"
                 warn "已选择 ${VERSION_LABEL} / Selected ${VERSION_LABEL}"
                 break
                 ;;
@@ -219,6 +217,11 @@ port_in_use() {
     fi
 }
 
+port_used_by_mpd_hls() {
+    local port="$1"
+    docker port mpd-hls 2>/dev/null | grep -Eq "(^|:)${port}$"
+}
+
 choose_port() {
     step "配置服务端口 / Configure service port"
     info "默认端口为 ${DEFAULT_PORT}，直接回车使用默认值。 / Default port is ${DEFAULT_PORT}. Press Enter to use it."
@@ -235,7 +238,11 @@ choose_port() {
             warn "端口范围必须在 1 到 65535 之间。 / Port must be between 1 and 65535."
             continue
         fi
-        if port_in_use "$USER_PORT"; then
+        if [ "$USER_PORT" -eq "$RTMP_PORT" ]; then
+            warn "端口 ${RTMP_PORT} 保留给 RTMP 推流，请选择其他 HTTP 端口。 / Port ${RTMP_PORT} is reserved for RTMP; choose another HTTP port."
+            continue
+        fi
+        if port_in_use "$USER_PORT" && ! port_used_by_mpd_hls "$USER_PORT"; then
             warn "端口 ${USER_PORT} 已被占用。 / Port ${USER_PORT} is already in use."
             continue
         fi
@@ -272,27 +279,54 @@ choose_domain() {
 }
 
 setup_files() {
-    step "下载 Compose 配置文件 / Download compose file"
+    step "生成 Compose 配置文件 / Generate compose file"
 
-    mkdir -p "${VAR_DIR}"
+    mkdir -p "${HLS_DIR}" "${FONTS_DIR}" "${RECORDINGS_DIR}"
     chmod -R 775 "${INSTALL_DIR}"
 
-    local tmp_yml
-    tmp_yml="$(mktemp)"
-    download_to "${VERSION_YML_URL}" "${tmp_yml}" || {
-        rm -f "${tmp_yml}"
-        err "下载 Compose 模板失败。 / Failed to download compose template."
-        exit 1
-    }
+    if [ -f "${COMPOSE_FILE}" ]; then
+        cp -f "${COMPOSE_FILE}" "${COMPOSE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+    fi
 
-    sed \
-        -e "s|0\.0\.0\.0:[0-9]*:${CONTAINER_PORT}|0.0.0.0:${USER_PORT}:${CONTAINER_PORT}|g" \
-        -e "s|\[::\]:[0-9]*:${CONTAINER_PORT}|[::]:${USER_PORT}:${CONTAINER_PORT}|g" \
-        -e "s|/opt/mpd-hls/var|${VAR_DIR}|g" \
-        "${tmp_yml}" > "${COMPOSE_FILE}"
+    cat > "${COMPOSE_FILE}" <<EOF
+services:
+  mpd-hls:
+    image: charmingcheung000/mpd-hls:${VERSION_TAG}
+    container_name: mpd-hls
+    ports:
+      - "0.0.0.0:${USER_PORT}:${CONTAINER_PORT}"
+      - "[::]:${USER_PORT}:${CONTAINER_PORT}"
+      - "0.0.0.0:${RTMP_PORT}:${RTMP_PORT}"
+      - "[::]:${RTMP_PORT}:${RTMP_PORT}"
+    environment:
+      - RUST_LOG=INFO
+      - TZ=Asia/Shanghai
+      - _RJEM_MALLOC_CONF=narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
+      - MPD_HLS_PUBLIC_BASE_URL=http://${DOMAIN_NAME}
+    volumes:
+      - ${VAR_DIR}:/app/var
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+EOF
 
-    rm -f "${tmp_yml}"
     ok "Compose 配置已写入 / Compose file written: ${COMPOSE_FILE}"
+}
+
+migrate_runtime_dirs() {
+    step "整理运行目录 / Migrate runtime directories"
+
+    local name source target
+    mkdir -p "${HLS_DIR}" "${FONTS_DIR}" "${RECORDINGS_DIR}"
+    for name in fonts recordings; do
+        source="${HLS_DIR}/${name}"
+        target="${VAR_DIR}/${name}"
+        [ -d "${source}" ] || continue
+
+        cp -a "${source}/." "${target}/"
+        rm -rf "${source}"
+        ok "已迁移 / Migrated: ${source} -> ${target}"
+    done
 }
 
 start_service() {
@@ -444,15 +478,17 @@ open_firewall() {
 
     if command -v ufw >/dev/null 2>&1; then
         ufw allow "${USER_PORT}/tcp" >/dev/null 2>&1 || true
+        ufw allow "${RTMP_PORT}/tcp" >/dev/null 2>&1 || true
         ufw allow 80/tcp >/dev/null 2>&1 || true
-        ok "ufw 已放行 ${USER_PORT}/tcp 和 80/tcp / ufw allowed ${USER_PORT}/tcp and 80/tcp"
+        ok "ufw 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 80/tcp / ufw allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and 80/tcp"
     fi
 
     if command -v firewall-cmd >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port="${USER_PORT}/tcp" >/dev/null 2>&1 || true
+        firewall-cmd --permanent --add-port="${RTMP_PORT}/tcp" >/dev/null 2>&1 || true
         firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
         firewall-cmd --reload >/dev/null 2>&1 || true
-        ok "firewalld 已放行 ${USER_PORT}/tcp 和 http / firewalld allowed ${USER_PORT}/tcp and http"
+        ok "firewalld 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 http / firewalld allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and http"
     fi
 }
 
@@ -492,8 +528,7 @@ detect_existing_nginx_proxy() {
     for dir in "${paths[@]}"; do
         [ -d "${dir}" ] || continue
         while IFS= read -r -d '' file; do
-            if grep -Eq "proxy_pass[[:space:]]+http://127\.0\.0\.1:${port}" "${file}" 2>/dev/null || \
-               grep -Eq "server_name[[:space:]]+[^;]+" "${file}" 2>/dev/null; then
+            if grep -Eq "proxy_pass[[:space:]]+http://127\.0\.0\.1:${port}" "${file}" 2>/dev/null; then
                 echo "${file}"
                 return 0
             fi
@@ -518,6 +553,7 @@ print_summary() {
     echo "创建时间 / Created: ${created}"
     echo "内网地址 / Local URL: http://${LOCAL_IP}:${USER_PORT}"
     echo "公网地址 / Public URL: http://${PUBLIC_IP}:${USER_PORT}"
+    echo "RTMP 地址 / RTMP URL: rtmp://${PUBLIC_IP}:${RTMP_PORT}"
     if [ -n "${DOMAIN_NAME}" ]; then
         echo "Nginx 地址 / Nginx URL: http://${DOMAIN_NAME}"
     fi
@@ -536,10 +572,17 @@ do_install() {
     check_docker
     check_compose
     choose_port
+    if port_in_use "${RTMP_PORT}" && ! port_used_by_mpd_hls "${RTMP_PORT}"; then
+        err "RTMP 端口 ${RTMP_PORT} 已被占用。 / RTMP port ${RTMP_PORT} is already in use."
+        exit 1
+    fi
+    choose_domain
+    migrate_runtime_dirs
     setup_files
     start_service
     wait_healthy
-    setup_nginx
+    check_nginx
+    configure_nginx
     open_firewall
     print_summary
 }
@@ -572,6 +615,18 @@ do_upgrade() {
 
     check_docker
     check_compose
+
+    VERSION_TAG="$(grep -oE 'charmingcheung000/mpd-hls:(latest|alpha)' "${COMPOSE_FILE}" 2>/dev/null | head -1 | cut -d: -f2 || true)"
+    VERSION_TAG="${VERSION_TAG:-latest}"
+    if [ -z "${DOMAIN_NAME}" ]; then
+        choose_domain
+    fi
+    if port_in_use "${RTMP_PORT}" && ! port_used_by_mpd_hls "${RTMP_PORT}"; then
+        err "RTMP 端口 ${RTMP_PORT} 已被其他服务占用。 / RTMP port ${RTMP_PORT} is already used by another service."
+        exit 1
+    fi
+    migrate_runtime_dirs
+    setup_files
 
     cd "${INSTALL_DIR}"
     ${COMPOSE_CMD} pull

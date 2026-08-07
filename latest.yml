@@ -7,10 +7,13 @@ services:
     ports:
       - "0.0.0.0:9100:9100"
       - "[::]:9100:9100"
+      - "0.0.0.0:1935:1935"
+      - "[::]:1935:1935"
     environment:
       - RUST_LOG=INFO
       - TZ=Asia/Shanghai
       - _RJEM_MALLOC_CONF=narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
+      - "MPD_HLS_PUBLIC_BASE_URL=${MPD_HLS_PUBLIC_BASE_URL:-http://localhost}"
     volumes:
       - /opt/mpd-hls/var:/app/var
     extra_hosts:
