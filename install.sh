@@ -29,7 +29,10 @@ VERSION_TAG=""
 VERSION_LABEL=""
 USER_PORT="${DEFAULT_PORT}"
 DOMAIN_NAME=""
+PUBLIC_BASE_URL=""
 COMPOSE_CMD=""
+NGINX_ACTIVE=0
+NGINX_WANTED=0
 
 line() { echo -e "${DIM}------------------------------------------------------------${NC}"; }
 ok() { echo -e "${GREEN}[完成 / OK]${NC} $*"; }
@@ -302,7 +305,7 @@ services:
       - RUST_LOG=INFO
       - TZ=Asia/Shanghai
       - _RJEM_MALLOC_CONF=narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
-      - MPD_HLS_PUBLIC_BASE_URL=http://${DOMAIN_NAME}
+      - MPD_HLS_PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
     volumes:
       - ${VAR_DIR}:/app/var
     extra_hosts:
@@ -380,10 +383,19 @@ check_nginx() {
     if command -v nginx >/dev/null 2>&1; then
         ok "Nginx 已安装，跳过安装 / Nginx already installed, skip installation: $(nginx -v 2>&1)"
         info "继续配置反向代理... / Continue to configure reverse proxy..."
+        return 0
     else
-        warn "未检测到 Nginx，正在在线安装... / Nginx not found, installing online..."
+        warn "未检测到 Nginx。 / Nginx was not found."
+        read -r -p "是否立即安装 Nginx？[y/N] / Install Nginx now? [y/N]: " INSTALL_NGINX
+        INSTALL_NGINX="${INSTALL_NGINX:-N}"
+        if [[ ! "${INSTALL_NGINX}" =~ ^[Yy]$ ]]; then
+            warn "已跳过 Nginx 安装和反向代理配置。 / Nginx installation and reverse-proxy configuration skipped."
+            return 1
+        fi
+
         install_nginx
         info "Nginx 安装完成，继续配置反向代理... / Nginx installation completed, continue to configure reverse proxy..."
+        return 0
     fi
 }
 
@@ -464,13 +476,19 @@ EOF
     info "正在重载 Nginx 使反向代理生效... / Reloading Nginx to apply reverse proxy configuration..."
     systemctl reload nginx || systemctl restart nginx
 
+    NGINX_ACTIVE=1
     ok "Nginx 反向代理已生效 / Nginx reverse proxy is active: ${NGINX_CONF}"
 }
 
 setup_nginx() {
-    choose_domain
-    check_nginx
-    configure_nginx
+    if check_nginx; then
+        NGINX_WANTED=1
+        choose_domain
+        PUBLIC_BASE_URL="http://${DOMAIN_NAME}"
+        configure_nginx
+    else
+        set_direct_public_base_url
+    fi
 }
 
 open_firewall() {
@@ -479,22 +497,43 @@ open_firewall() {
     if command -v ufw >/dev/null 2>&1; then
         ufw allow "${USER_PORT}/tcp" >/dev/null 2>&1 || true
         ufw allow "${RTMP_PORT}/tcp" >/dev/null 2>&1 || true
-        ufw allow 80/tcp >/dev/null 2>&1 || true
-        ok "ufw 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 80/tcp / ufw allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and 80/tcp"
+        if [ "${NGINX_ACTIVE}" -eq 1 ]; then
+            ufw allow 80/tcp >/dev/null 2>&1 || true
+            ok "ufw 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 80/tcp / ufw allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and 80/tcp"
+        else
+            ok "ufw 已放行 ${USER_PORT}/tcp 和 ${RTMP_PORT}/tcp / ufw allowed ${USER_PORT}/tcp and ${RTMP_PORT}/tcp"
+        fi
     fi
 
     if command -v firewall-cmd >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port="${USER_PORT}/tcp" >/dev/null 2>&1 || true
         firewall-cmd --permanent --add-port="${RTMP_PORT}/tcp" >/dev/null 2>&1 || true
-        firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
+        if [ "${NGINX_ACTIVE}" -eq 1 ]; then
+            firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
+        fi
         firewall-cmd --reload >/dev/null 2>&1 || true
-        ok "firewalld 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 http / firewalld allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and http"
+        if [ "${NGINX_ACTIVE}" -eq 1 ]; then
+            ok "firewalld 已放行 ${USER_PORT}/tcp、${RTMP_PORT}/tcp 和 http / firewalld allowed ${USER_PORT}/tcp, ${RTMP_PORT}/tcp and http"
+        else
+            ok "firewalld 已放行 ${USER_PORT}/tcp 和 ${RTMP_PORT}/tcp / firewalld allowed ${USER_PORT}/tcp and ${RTMP_PORT}/tcp"
+        fi
     fi
 }
 
 get_ip() {
     LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
     PUBLIC_IP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || curl -s --max-time 5 http://ip.sb 2>/dev/null || echo unknown)"
+}
+
+set_direct_public_base_url() {
+    get_ip
+
+    local address="${PUBLIC_IP}"
+    if [ -z "${address}" ] || [ "${address}" = "unknown" ]; then
+        address="${LOCAL_IP}"
+    fi
+    PUBLIC_BASE_URL="http://${address}:${USER_PORT}"
+    info "未启用 Nginx，公共基础地址将使用 IP 和端口 / Nginx is disabled; public base URL will use IP and port: ${PUBLIC_BASE_URL}"
 }
 
 read_current_port() {
@@ -554,12 +593,15 @@ print_summary() {
     echo "内网地址 / Local URL: http://${LOCAL_IP}:${USER_PORT}"
     echo "公网地址 / Public URL: http://${PUBLIC_IP}:${USER_PORT}"
     echo "RTMP 地址 / RTMP URL: rtmp://${PUBLIC_IP}:${RTMP_PORT}"
-    if [ -n "${DOMAIN_NAME}" ]; then
+    echo "公共基础地址 / Public base URL: ${PUBLIC_BASE_URL}"
+    if [ "${NGINX_ACTIVE}" -eq 1 ] && [ -n "${DOMAIN_NAME}" ]; then
         echo "Nginx 地址 / Nginx URL: http://${DOMAIN_NAME}"
+        echo "Nginx 配置 / Nginx conf: ${NGINX_CONF}"
+    else
+        echo "Nginx 状态 / Nginx status: 已跳过 / skipped"
     fi
     echo "数据目录 / Data dir: ${VAR_DIR}"
     echo "Compose 文件 / Compose file: ${COMPOSE_FILE}"
-    echo "Nginx 配置 / Nginx conf: ${NGINX_CONF}"
     echo ""
     echo "常用命令 / Useful commands:"
     echo "  docker logs -f mpd-hls"
@@ -576,13 +618,20 @@ do_install() {
         err "RTMP 端口 ${RTMP_PORT} 已被占用。 / RTMP port ${RTMP_PORT} is already in use."
         exit 1
     fi
-    choose_domain
+    if check_nginx; then
+        NGINX_WANTED=1
+        choose_domain
+        PUBLIC_BASE_URL="http://${DOMAIN_NAME}"
+    else
+        set_direct_public_base_url
+    fi
     migrate_runtime_dirs
     setup_files
     start_service
     wait_healthy
-    check_nginx
-    configure_nginx
+    if [ "${NGINX_WANTED}" -eq 1 ]; then
+        configure_nginx
+    fi
     open_firewall
     print_summary
 }
@@ -618,13 +667,28 @@ do_upgrade() {
 
     VERSION_TAG="$(grep -oE 'charmingcheung000/mpd-hls:(latest|alpha)' "${COMPOSE_FILE}" 2>/dev/null | head -1 | cut -d: -f2 || true)"
     VERSION_TAG="${VERSION_TAG:-latest}"
-    if [ -z "${DOMAIN_NAME}" ]; then
-        choose_domain
-    fi
     if port_in_use "${RTMP_PORT}" && ! port_used_by_mpd_hls "${RTMP_PORT}"; then
         err "RTMP 端口 ${RTMP_PORT} 已被其他服务占用。 / RTMP port ${RTMP_PORT} is already used by another service."
         exit 1
     fi
+
+    if [ -n "${existing_nginx_conf}" ] && command -v nginx >/dev/null 2>&1; then
+        NGINX_WANTED=1
+        NGINX_ACTIVE=1
+        if [ -z "${DOMAIN_NAME}" ]; then
+            choose_domain
+        fi
+        PUBLIC_BASE_URL="http://${DOMAIN_NAME}"
+    elif check_nginx; then
+        NGINX_WANTED=1
+        if [ -z "${DOMAIN_NAME}" ]; then
+            choose_domain
+        fi
+        PUBLIC_BASE_URL="http://${DOMAIN_NAME}"
+    else
+        set_direct_public_base_url
+    fi
+
     migrate_runtime_dirs
     setup_files
 
@@ -633,16 +697,11 @@ do_upgrade() {
     ${COMPOSE_CMD} up -d --remove-orphans
     wait_healthy
 
-    if [ -n "${existing_nginx_conf}" ]; then
+    if [ "${NGINX_WANTED}" -eq 1 ] && [ -n "${existing_nginx_conf}" ] && [ "${NGINX_ACTIVE}" -eq 1 ]; then
         ok "检测到现有 Nginx 配置，跳过域名输入和反代重写 / Existing Nginx config detected, skip domain prompt and reverse-proxy rewrite: ${existing_nginx_conf}"
-        if command -v nginx >/dev/null 2>&1; then
-            nginx -t && systemctl reload nginx || systemctl restart nginx || true
-        fi
-    elif [ -n "${DOMAIN_NAME}" ]; then
-        check_nginx
+        nginx -t && systemctl reload nginx || systemctl restart nginx || true
+    elif [ "${NGINX_WANTED}" -eq 1 ]; then
         configure_nginx
-    else
-        info "未找到现成的 Nginx 反向代理配置，跳过反向代理更新。 / No existing Nginx reverse proxy config found, skip update."
     fi
 
     open_firewall
