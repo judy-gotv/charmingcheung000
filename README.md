@@ -36,10 +36,11 @@
 | 🎯 自定义端口 | 安装时交互输入端口号，自动检测占用冲突，默认 `9527` |
 | 📡 RTMP 推流 | 自动映射并放行固定端口 `1935`，同时检测端口冲突 |
 | 🔗 公共访问地址 | 根据 Nginx 域名设置 `MPD_HLS_PUBLIC_BASE_URL`，生成正确的 m3u8、m3u8x、EPG 等资源链接 |
+| 🗄️ 数据库迁移 | 1.0.0 自动将旧 JSON 迁移到本地 SQLite，也支持 PostgreSQL |
 | 📦 多版本选择 | 支持 `latest` 稳定版 与 `alpha` 尝鲜版 |
 | ⬆️ 一键升级 | 保留版本、HTTP 端口和域名，补齐新版部署参数后拉取镜像并重启 |
 | 🗑️ 一键卸载 | 移除容器、镜像（latest + alpha）及全部数据目录 |
-| 🔥 防火墙自动放行 | 自动兼容 `ufw` 和 `firewalld`，放行 HTTP、RTMP 和 Nginx 端口 |
+| 🔥 防火墙自动放行 | 自动兼容 `ufw` 和 `firewalld`；Nginx 未安装时不会放行其 HTTP 端口 |
 | 🌐 双栈监听 | 同时监听 IPv4（`0.0.0.0`）与 IPv6（`::`） |
 
 ---
@@ -103,17 +104,29 @@ wget -O install.sh https://raw.githubusercontent.com/judy-gotv/charmingcheung000
 - 输入自定义端口后脚本会自动检测是否被占用
 - `1935` 保留给 RTMP 推流，不能作为 HTTP 服务端口
 
-**③ 设置 Nginx 域名**
+**③ 选择 Nginx 并确定公共地址**
 
-脚本会要求输入反向代理域名，例如 `stream.example.com`。该域名同时用于生成：
+如果系统尚未安装 Nginx，脚本会先询问是否安装。选择安装后才会要求输入反向代理域名，例如 `stream.example.com`，并生成：
 
 ```yaml
 MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
 ```
 
+选择跳过时则不要求输入域名，公共基础地址自动使用 `http://公网IP:服务端口`。
+
 **④ 自动执行**
 
-脚本将依次完成：检测/安装 Docker → 检测/安装 Compose → 检查 HTTP 与 RTMP 端口 → 整理数据目录 → 生成 Compose 配置 → 拉取镜像 → 配置 Nginx → 放行防火墙
+脚本将依次完成：检测/安装 Docker → 检测/安装 Compose → 检查 HTTP 与 RTMP 端口 → 询问是否安装并配置 Nginx → 确定公共基础地址 → 整理数据目录 → 生成 Compose 配置 → 拉取镜像 → 放行防火墙
+
+如果系统尚未安装 Nginx，脚本会显示以下确认，直接回车默认跳过：
+
+```text
+是否立即安装 Nginx？[y/N] / Install Nginx now? [y/N]:
+```
+
+选择 `N` 不会中断 MPD-HLS 服务，脚本会跳过 Nginx 安装、反向代理配置和 `80` 端口放行，并将 `MPD_HLS_PUBLIC_BASE_URL` 设置为 IP 加服务端口。
+
+随后脚本会询问数据库连接地址。直接回车使用本地 SQLite；如需 PostgreSQL，请输入 `postgres://...` 或 `postgresql://...` 连接地址。
 
 **⑤ 安装完成后显示**
 
@@ -130,6 +143,7 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
     公    网   http://1.2.3.4:9527
     RTMP      rtmp://1.2.3.4:1935
     Nginx     http://stream.example.com
+    公共基础地址 http://stream.example.com
 
   常用命令
   ─────────────────────────────────────────────────
@@ -137,6 +151,12 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
     停止服务   cd /opt/mpd-hls && docker compose down
     重启服务   cd /opt/mpd-hls && docker compose restart
     更新镜像   cd /opt/mpd-hls && docker compose pull && docker compose up -d
+```
+
+如果跳过 Nginx，最终摘要不会显示 Nginx 地址，公共基础地址会显示为：
+
+```text
+公共基础地址 / Public base URL: http://1.2.3.4:9527
 ```
 
 ---
@@ -147,22 +167,27 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
 
 - **端口** — 完全保留用户设置的端口，不会被重置
 - **版本 Tag** — 保留原来安装的版本（latest / alpha），拉取该 tag 的最新镜像
-- **公共域名** — 自动读取原 Nginx 域名；读取不到时提示重新输入
+- **公共基础地址** — 启用 Nginx 时复用或询问域名；跳过 Nginx 时自动使用公网 IP 和服务端口
+- **数据库** — 直接回车使用本地 SQLite；输入 PostgreSQL URL 可切换到 PostgreSQL
 - **数据目录** — `/opt/mpd-hls/var` 中的数据完整保留，不做任何清理
 
-升级会重新生成 `docker-compose.yml`，自动加入 RTMP `1935` 映射和 `MPD_HLS_PUBLIC_BASE_URL`。旧 Compose 文件会保存为带时间戳的 `.bak` 备份。
+升级会先将旧版 JSON 和 `auth_secret` 备份到 `/opt/mpd-hls/backup-时间戳/`，再重新生成 `docker-compose.yml`，自动加入 RTMP `1935` 映射和 `MPD_HLS_PUBLIC_BASE_URL`。旧 Compose 文件会保存为带时间戳的 `.bak` 备份。1.0.0 迁移完成后不再读取旧 JSON 和 `auth_secret`。
 
 升级步骤：
 
 ```
   步骤 1/5  检测 Docker 环境       已安装则跳过，未安装则自动安装
-  步骤 2/5  检查 RTMP 端口         拒绝其他服务占用 1935
-  步骤 3/5  整理并保留数据目录     迁移旧字体与录制目录
-  步骤 4/5  更新配置并拉取镜像     写入新版 Compose 后执行 pull
-  步骤 5/5  重启服务               docker compose up -d --remove-orphans
+  步骤 2/7  检查 RTMP 端口         拒绝其他服务占用 1935
+  步骤 3/7  备份旧版数据           保存 JSON 和 auth_secret
+  步骤 4/7  配置数据库             默认使用 SQLite，可选 PostgreSQL
+  步骤 5/7  整理并保留数据目录     迁移旧字体与录制目录
+  步骤 6/7  更新配置并拉取镜像     写入新版 Compose 后执行 pull
+  步骤 7/7  重启服务               docker compose up -d --remove-orphans
 ```
 
 > 若检测到未安装过 mpd-hls 服务，脚本会提示是否转入全新安装流程。
+
+> 升级时若需要配置反向代理但系统没有 Nginx，也会先询问是否安装，默认不会执行安装。
 
 ---
 
@@ -264,6 +289,16 @@ MPD_HLS_PUBLIC_BASE_URL=https://stream.example.com docker compose -f latest.yml 
 **Q：生成的 m3u8 或 EPG 链接域名不正确怎么办？**
 
 检查 `/opt/mpd-hls/docker-compose.yml` 中的 `MPD_HLS_PUBLIC_BASE_URL`。一键安装会根据 Nginx 域名自动设置；直接使用 Compose 文件时请通过同名环境变量覆盖默认值。
+
+**Q：如何从 0.x 升级到 1.0.0？**
+
+先备份 `/opt/mpd-hls/var`，确认 Docker 可用，然后运行脚本选择“升级”。脚本会额外备份旧 JSON 和 `auth_secret`，并由 1.0.0 自动迁移到 SQLite。迁移后旧 JSON 不再读取。
+
+如需 PostgreSQL，在数据库提示处输入连接地址，例如：
+
+```bash
+postgres://user:password@host:5432/database
+```
 
 **Q：卸载后数据能恢复吗？**
 
