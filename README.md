@@ -126,7 +126,7 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
 
 选择 `N` 不会中断 MPD-HLS 服务，脚本会跳过 Nginx 安装、反向代理配置和 `80` 端口放行，并将 `MPD_HLS_PUBLIC_BASE_URL` 设置为 IP 加服务端口。
 
-随后脚本会询问数据库连接地址。直接回车使用本地 SQLite；如需 PostgreSQL，请输入 `postgres://...` 或 `postgresql://...` 连接地址。
+数据库无需手动创建或输入连接地址。1.0.0 启动后会自动将旧 JSON 迁移到本地 SQLite；只有你原先已经配置了 `MPD_HLS_DATABASE_URL` 时，脚本才会继续沿用原 PostgreSQL 配置。
 
 **⑤ 安装完成后显示**
 
@@ -168,7 +168,7 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
 - **端口** — 完全保留用户设置的端口，不会被重置
 - **版本 Tag** — 保留原来安装的版本（latest / alpha），拉取该 tag 的最新镜像
 - **公共基础地址** — 启用 Nginx 时复用或询问域名；跳过 Nginx 时自动使用公网 IP 和服务端口
-- **数据库** — 直接回车使用本地 SQLite；输入 PostgreSQL URL 可切换到 PostgreSQL
+- **数据库** — 由 1.0.0 自动创建并迁移本地 SQLite；已有 PostgreSQL 配置会自动保留
 - **数据目录** — `/opt/mpd-hls/var` 中的数据完整保留，不做任何清理
 
 升级会先将旧版 JSON 和 `auth_secret` 备份到 `/opt/mpd-hls/backup-时间戳/`，再重新生成 `docker-compose.yml`，自动加入 RTMP `1935` 映射和 `MPD_HLS_PUBLIC_BASE_URL`。旧 Compose 文件会保存为带时间戳的 `.bak` 备份。1.0.0 迁移完成后不再读取旧 JSON 和 `auth_secret`。
@@ -176,13 +176,12 @@ MPD_HLS_PUBLIC_BASE_URL=http://stream.example.com
 升级步骤：
 
 ```
-  步骤 1/5  检测 Docker 环境       已安装则跳过，未安装则自动安装
-  步骤 2/7  检查 RTMP 端口         拒绝其他服务占用 1935
-  步骤 3/7  备份旧版数据           保存 JSON 和 auth_secret
-  步骤 4/7  配置数据库             默认使用 SQLite，可选 PostgreSQL
-  步骤 5/7  整理并保留数据目录     迁移旧字体与录制目录
-  步骤 6/7  更新配置并拉取镜像     写入新版 Compose 后执行 pull
-  步骤 7/7  重启服务               docker compose up -d --remove-orphans
+  步骤 1/6  检测 Docker 环境       已安装则跳过，未安装则自动安装
+  步骤 2/6  检查 RTMP 端口         拒绝其他服务占用 1935
+  步骤 3/6  备份旧版数据           保存 JSON 和 auth_secret
+  步骤 4/6  整理并保留数据目录     迁移旧字体与录制目录
+  步骤 5/6  更新配置并拉取镜像     写入新版 Compose 后执行 pull
+  步骤 6/6  重启服务               docker compose up -d --remove-orphans
 ```
 
 > 若检测到未安装过 mpd-hls 服务，脚本会提示是否转入全新安装流程。
@@ -294,7 +293,7 @@ MPD_HLS_PUBLIC_BASE_URL=https://stream.example.com docker compose -f latest.yml 
 
 先备份 `/opt/mpd-hls/var`，确认 Docker 可用，然后运行脚本选择“升级”。脚本会额外备份旧 JSON 和 `auth_secret`，并由 1.0.0 自动迁移到 SQLite。迁移后旧 JSON 不再读取。
 
-如需 PostgreSQL，在数据库提示处输入连接地址，例如：
+如需使用 PostgreSQL，请先自行准备数据库，并在已有 Compose 配置中设置 `MPD_HLS_DATABASE_URL`，升级脚本会保留该配置。例如：
 
 ```bash
 postgres://user:password@host:5432/database

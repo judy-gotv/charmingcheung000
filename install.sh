@@ -282,27 +282,6 @@ choose_domain() {
     done
 }
 
-choose_database() {
-    step "配置数据库 / Configure database"
-
-    if [ -z "${DATABASE_URL}" ]; then
-        read -r -p "PostgreSQL 连接地址（直接回车使用本地 SQLite）/ PostgreSQL URL (Enter for local SQLite): " DATABASE_URL
-    fi
-    if [ -n "${DATABASE_URL}" ]; then
-        case "${DATABASE_URL}" in
-            postgres://*|postgresql://*)
-                ok "将使用 PostgreSQL 数据库 / PostgreSQL database selected"
-                ;;
-            *)
-                warn "数据库地址必须以 postgres:// 或 postgresql:// 开头，已改用本地 SQLite。 / Invalid PostgreSQL URL; using local SQLite."
-                DATABASE_URL=""
-                ;;
-        esac
-    else
-        info "将使用本地 SQLite 数据库 / Local SQLite database selected"
-    fi
-}
-
 backup_legacy_data() {
     local backup_dir
     backup_dir="${INSTALL_DIR}/backup-$(date +%Y%m%d%H%M%S)"
@@ -667,7 +646,6 @@ do_install() {
     else
         set_direct_public_base_url
     fi
-    choose_database
     migrate_runtime_dirs
     setup_files
     start_service
@@ -734,7 +712,6 @@ do_upgrade() {
 
     backup_legacy_data
     DATABASE_URL="$(grep -E '^[[:space:]-]*MPD_HLS_DATABASE_URL=' "${COMPOSE_FILE}" 2>/dev/null | head -1 | sed -E 's/^[[:space:]-]*MPD_HLS_DATABASE_URL=//' || true)"
-    choose_database
     migrate_runtime_dirs
     setup_files
 
