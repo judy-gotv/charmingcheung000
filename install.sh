@@ -30,6 +30,7 @@ VERSION_LABEL=""
 USER_PORT="${DEFAULT_PORT}"
 DOMAIN_NAME=""
 PUBLIC_BASE_URL=""
+DATABASE_URL=""
 COMPOSE_CMD=""
 NGINX_ACTIVE=0
 NGINX_WANTED=0
@@ -281,6 +282,41 @@ choose_domain() {
     done
 }
 
+choose_database() {
+    step "配置数据库 / Configure database"
+
+    if [ -z "${DATABASE_URL}" ]; then
+        read -r -p "PostgreSQL 连接地址（直接回车使用本地 SQLite）/ PostgreSQL URL (Enter for local SQLite): " DATABASE_URL
+    fi
+    if [ -n "${DATABASE_URL}" ]; then
+        case "${DATABASE_URL}" in
+            postgres://*|postgresql://*)
+                ok "将使用 PostgreSQL 数据库 / PostgreSQL database selected"
+                ;;
+            *)
+                warn "数据库地址必须以 postgres:// 或 postgresql:// 开头，已改用本地 SQLite。 / Invalid PostgreSQL URL; using local SQLite."
+                DATABASE_URL=""
+                ;;
+        esac
+    else
+        info "将使用本地 SQLite 数据库 / Local SQLite database selected"
+    fi
+}
+
+backup_legacy_data() {
+    local backup_dir
+    backup_dir="${INSTALL_DIR}/backup-$(date +%Y%m%d%H%M%S)"
+    mkdir -p "${backup_dir}"
+
+    find "${VAR_DIR}" -maxdepth 1 -type f \( -name '*.json' -o -name 'auth_secret' \) -exec cp -a {} "${backup_dir}/" \; 2>/dev/null || true
+    if find "${backup_dir}" -maxdepth 1 -type f -print -quit 2>/dev/null | grep -q .; then
+        ok "旧版 JSON/auth_secret 已备份 / Legacy JSON/auth_secret backed up: ${backup_dir}"
+    else
+        rmdir "${backup_dir}" 2>/dev/null || true
+        info "未发现旧版 JSON 或 auth_secret，无需备份 / No legacy JSON or auth_secret found"
+    fi
+}
+
 setup_files() {
     step "生成 Compose 配置文件 / Generate compose file"
 
@@ -289,6 +325,11 @@ setup_files() {
 
     if [ -f "${COMPOSE_FILE}" ]; then
         cp -f "${COMPOSE_FILE}" "${COMPOSE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+
+    local database_env=""
+    if [ -n "${DATABASE_URL}" ]; then
+        database_env="      - MPD_HLS_DATABASE_URL=${DATABASE_URL}"
     fi
 
     cat > "${COMPOSE_FILE}" <<EOF
@@ -306,6 +347,7 @@ services:
       - TZ=Asia/Shanghai
       - _RJEM_MALLOC_CONF=narenas:2,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
       - MPD_HLS_PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+${database_env}
     volumes:
       - ${VAR_DIR}:/app/var
     extra_hosts:
@@ -625,6 +667,7 @@ do_install() {
     else
         set_direct_public_base_url
     fi
+    choose_database
     migrate_runtime_dirs
     setup_files
     start_service
@@ -689,6 +732,9 @@ do_upgrade() {
         set_direct_public_base_url
     fi
 
+    backup_legacy_data
+    DATABASE_URL="$(grep -E '^[[:space:]-]*MPD_HLS_DATABASE_URL=' "${COMPOSE_FILE}" 2>/dev/null | head -1 | sed -E 's/^[[:space:]-]*MPD_HLS_DATABASE_URL=//' || true)"
+    choose_database
     migrate_runtime_dirs
     setup_files
 
