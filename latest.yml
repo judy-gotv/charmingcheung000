@@ -16,6 +16,8 @@ services:
       - "MPD_HLS_PUBLIC_BASE_URL=${MPD_HLS_PUBLIC_BASE_URL:-http://localhost}"
     volumes:
       - /opt/mpd-hls/var:/app/var
+    tmpfs:
+      - /app/var/hls:rw,size=1g,mode=1777
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
